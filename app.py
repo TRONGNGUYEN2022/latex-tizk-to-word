@@ -5,8 +5,6 @@ import subprocess
 import tempfile
 import shutil
 import base64
-import zipfile
-from PIL import Image
 from pdf2image import convert_from_path
 import pypandoc
 
@@ -14,14 +12,24 @@ st.set_page_config(page_title="LaTeX & TikZ Studio Pro", layout="wide")
 
 def compile_raw_tikz_to_formats(tikz_code, output_dir, dpi=300):
     """
-    Biên dịch riêng khối TikZ sang PDF, PNG, JPEG, SVG
+    Biên dịch khối TikZ sang PDF, PNG, JPEG và xử lý triệt để lỗi LR mode
     """
-    # Tự động bọc begin/end nếu người dùng chỉ dán phần thân \draw...
     clean_tikz = tikz_code.strip()
-    if not clean_tikz.startswith(r"\begin{tikzpicture}"):
-        clean_tikz = f"\\begin{{tikzpicture}}\n{clean_tikz}\n\\end{{tikzpicture}}"
+    # Loại bỏ các thẻ căn lề khối gây xung đột với standalone
+    clean_tikz = re.sub(r"\\begin\{center\}", "", clean_tikz)
+    clean_tikz = re.sub(r"\\end\{center\}", "", clean_tikz)
+    clean_tikz = re.sub(r"\\centering", "", clean_tikz)
+    clean_tikz = clean_tikz.strip()
 
-    tex_content = f"""\\documentclass[border=3mm]{{standalone}}
+    # Tự động trích xuất hoặc bao bọc môi trường tikzpicture
+    if not clean_tikz.startswith(r"\begin{tikzpicture}"):
+        match = re.search(r"(\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\})", clean_tikz)
+        if match:
+            clean_tikz = match.group(1)
+        else:
+            clean_tikz = f"\\begin{{tikzpicture}}\n{clean_tikz}\n\\end{{tikzpicture}}"
+
+    tex_content = f"""\\documentclass[border=3mm,varwidth=\\maxdimen]{{standalone}}
 \\usepackage[utf8]{{vietnam}}
 \\usepackage{{amsmath,amssymb,amsfonts}}
 \\usepackage{{tikz}}
@@ -39,7 +47,7 @@ def compile_raw_tikz_to_formats(tikz_code, output_dir, dpi=300):
         f.write(tex_content)
 
     cmd = ["pdflatex", "-interaction=nonstopmode", "-halt-on-error", f"-output-directory={output_dir}", tex_file]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     pdf_file = os.path.join(output_dir, f"{job_name}.pdf")
     if not os.path.exists(pdf_file):
@@ -50,18 +58,15 @@ def compile_raw_tikz_to_formats(tikz_code, output_dir, dpi=300):
                 error_log = lf.read()[-1000:]
         raise RuntimeError(f"Lỗi biên dịch LaTeX TikZ:\n{error_log}")
 
-    # Chuyển đổi sang PNG
     images = convert_from_path(pdf_file, dpi=dpi)
     if not images:
         raise RuntimeError("Không thể chuyển PDF sang định dạng hình ảnh.")
 
     png_path = os.path.join(output_dir, f"{job_name}.png")
     jpg_path = os.path.join(output_dir, f"{job_name}.jpg")
-    
-    # Lưu PNG nền trong suốt / trắng
+
     images[0].save(png_path, "PNG")
-    
-    # Lưu JPEG nền trắng
+
     rgb_img = images[0].convert('RGB')
     rgb_img.save(jpg_path, "JPEG", quality=95)
 
@@ -80,6 +85,9 @@ def compile_raw_tikz_to_formats(tikz_code, output_dir, dpi=300):
     }
 
 def convert_latex_to_html_preview(tex_file, temp_dir):
+    """
+    Chuyển đổi TeX sang trang A4 độc lập kèm MathJax và nút sao chép trực tiếp vào Word
+    """
     try:
         html_out = os.path.join(temp_dir, "preview.html")
         pypandoc.convert_file(
@@ -178,8 +186,10 @@ def convert_latex_to_html_preview(tex_file, temp_dir):
             const docElement = document.getElementById("doc-content");
             const btn = document.getElementById("copyButton");
             try {{
-                const blobHtml = new Blob([docElement.innerHTML], {{ type: "text/html" }});
-                const blobText = new Blob([docElement.innerText], {{ type: "text/plain" }});
+                const htmlContent = docElement.innerHTML;
+                const textContent = docElement.innerText;
+                const blobHtml = new Blob([htmlContent], {{ type: "text/html" }});
+                const blobText = new Blob([textContent], {{ type: "text/plain" }});
                 const data = [new ClipboardItem({{ "text/html": blobHtml, "text/plain": blobText }})];
                 await navigator.clipboard.write(data);
                 btn.innerText = "✅ Đã sao chép! Mở Word và bấm Ctrl+V";
@@ -257,15 +267,14 @@ def process_latex_document(raw_tex):
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-# ----------------- GIAO DIỆN ỨNG DỤNG -----------------
+# Giao diện chính Streamlit
 st.title("⚡ LaTeX & TikZ Studio")
 
 tab1, tab2 = st.tabs(["🎨 Vẽ & Tải Ảnh TikZ Trực Tiếp", "📄 Chuyển Đổi Tài Liệu LaTeX Sang Word"])
 
-# TAB 1: RENDER VÀ TẢI ẢNH TIKZ RIÊNG LẺ
+# TAB 1: Xuất ảnh TikZ đơn lẻ
 with tab1:
     st.subheader("Dán mã TikZ $\\rightarrow$ Xem trước & Tải về file ảnh (PNG / JPEG / PDF)")
-    
     col_t1, col_t2 = st.columns([1.1, 1])
     with col_t1:
         tikz_single_code = st.text_area(
@@ -320,7 +329,7 @@ with tab1:
                 except Exception as e:
                     st.error(f"❌ {str(e)}")
 
-# TAB 2: CHUYỂN TÀI LIỆU TOÀN DIỆN SANG WORD
+# TAB 2: Chuyển toàn bộ tài liệu sang Word
 with tab2:
     st.subheader("Chuyển toàn bộ file/mã LaTeX sang Word (.docx)")
     c1, c2 = st.columns([1, 1])
