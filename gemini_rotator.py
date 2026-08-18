@@ -19,7 +19,7 @@ class GeminiKeyRotator:
         self,
         pdf_bytes: bytes,
         prompt_instruction: str,
-        model: str = "gemini-2.5-flash"
+        model: str = "gemini-3.7-flash"
     ) -> str:
         attempts = len(self.api_keys)
         last_error = None
@@ -27,11 +27,11 @@ class GeminiKeyRotator:
         pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
 
         system_instruction = (
-            "Bạn là chuyên gia chuyển đổi tài liệu đề thi Toán sang LaTeX. "
-            "Nhiệm vụ: Chuyển đổi toàn bộ nội dung trong PDF thành mã nguồn LaTeX hoàn chỉnh. "
-            "Tất cả công thức toán đặt trong $...$ hoặc $$...$$. "
-            "Các hình vẽ hình học, đồ thị BẮT BUỘC dựng bằng môi trường \\begin{tikzpicture}...\\end{tikzpicture}. "
-            "Chỉ trả về trực tiếp mã LaTeX thuần giữa \\begin{document} và \\end{document}."
+            "Bạn là chuyên gia chuyển đổi tài liệu Toán sang LaTeX và TikZ. "
+            "Nhiệm vụ: Chuyển toàn bộ nội dung PDF thành mã nguồn LaTeX đầy đủ. "
+            "Mọi công thức toán đặt trong $...$ hoặc $$...$$. "
+            "Mọi hình vẽ hình học, đồ thị hàm số BẮT BUỘC dựng bằng môi trường \\begin{tikzpicture}...\\end{tikzpicture}. "
+            "Chỉ xuất mã LaTeX thuần giữa \\begin{document} và \\end{document}, không viết lời mở đầu."
         )
 
         payload = {
@@ -44,9 +44,7 @@ class GeminiKeyRotator:
                                 "data": pdf_b64
                             }
                         },
-                        {
-                            "text": prompt_instruction
-                        }
+                        {"text": prompt_instruction}
                     ]
                 }
             ],
@@ -54,7 +52,10 @@ class GeminiKeyRotator:
                 "parts": [{"text": system_instruction}]
             },
             "generationConfig": {
-                "temperature": 0.2
+                "temperature": 0.1,
+                "thinkingConfig": {
+                    "thinkingBudget": 0
+                }
             }
         }
 
@@ -62,13 +63,13 @@ class GeminiKeyRotator:
             api_key = self.get_next_key()
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
             try:
-                res = requests.post(url, json=payload, timeout=120)
+                res = requests.post(url, json=payload, timeout=45)
                 if res.status_code == 200:
                     data = res.json()
                     candidates = data.get("candidates", [])
                     if candidates and "content" in candidates[0]:
-                        text_parts = candidates[0]["content"].get("parts", [])
-                        return "".join([p.get("text", "") for p in text_parts])
+                        parts = candidates[0]["content"].get("parts", [])
+                        return "".join([p.get("text", "") for p in parts])
                     return ""
                 elif res.status_code in [429, 403]:
                     continue
@@ -78,4 +79,4 @@ class GeminiKeyRotator:
                 last_error = str(e)
                 continue
 
-        raise RuntimeError(f"Tất cả {attempts} API Keys đều gặp sự cố. Chi tiết: {last_error}")
+        raise RuntimeError(f"Tất cả {attempts} Keys đều gặp sự cố. Chi tiết: {last_error}")

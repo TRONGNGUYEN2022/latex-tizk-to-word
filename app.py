@@ -37,7 +37,7 @@ if "gemini_keys" not in st.session_state:
 if "current_tex_code" not in st.session_state:
     st.session_state["current_tex_code"] = ""
 
-# ----------------- SIDEBAR QUẢN LÝ KEYS -----------------
+# ----------------- SIDEBAR -----------------
 with st.sidebar:
     st.header("🔑 Gemini API Keys")
     with st.form("add_key_form", clear_on_submit=True):
@@ -74,8 +74,8 @@ with st.sidebar:
     else:
         st.info("Chưa có Key nào.")
 
-# ----------------- HÀM BIÊN DỊCH LATEX/TIKZ SANG WORD -----------------
-def compile_single_tikz(tikz_code, output_dir, dpi=300):
+# ----------------- HÀM BIÊN DỊCH AN TOÀN -----------------
+def compile_single_tikz(tikz_code, output_dir, dpi=150):
     clean_tikz = re.sub(r"\\begin\{center\}|\\end\{center\}|\\centering", "", tikz_code).strip()
     if not clean_tikz.startswith(r"\begin{tikzpicture}"):
         match = re.search(r"(\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\})", clean_tikz)
@@ -95,8 +95,22 @@ def compile_single_tikz(tikz_code, output_dir, dpi=300):
     with open(tex_path, "w", encoding="utf-8") as f:
         f.write(tex_doc)
 
-    subprocess.run(["pdflatex", "-interaction=nonstopmode", "-halt-on-error", f"-output-directory={output_dir}", tex_path],
-                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        subprocess.run(
+            [
+                "pdflatex",
+                "-interaction=batchmode",
+                "-halt-on-error",
+                f"-output-directory={output_dir}",
+                tex_path
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=12
+        )
+    except subprocess.TimeoutExpired:
+        return None
 
     pdf_path = os.path.join(output_dir, f"{job_name}.pdf")
     if not os.path.exists(pdf_path):
@@ -124,13 +138,13 @@ def convert_latex_to_docx(raw_tex):
 
         for part in parts:
             if part.startswith(r"\begin{tikzpicture}") and part.endswith(r"\end{tikzpicture}"):
-                png_bytes = compile_single_tikz(part, temp_dir)
+                png_bytes = compile_single_tikz(part, temp_dir, dpi=150)
                 if png_bytes:
                     img_file = os.path.join(temp_dir, f"fig_{img_idx}.png")
                     with open(img_file, "wb") as f:
                         f.write(png_bytes)
                     norm_path = img_file.replace("\\", "/")
-                    reconstructed.append(f"\n\\begin{{center}}\\includegraphics[width=0.5\\textwidth]{{{norm_path}}}\\end{{center}}\n")
+                    reconstructed.append(f"\n\\begin{{center}}\\includegraphics[width=0.48\\textwidth]{{{norm_path}}}\\end{{center}}\n")
                     img_idx += 1
                 else:
                     reconstructed.append(part)
@@ -155,7 +169,7 @@ def convert_latex_to_docx(raw_tex):
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-# ----------------- GIAO DIỆN CHÍNH (2 TABS) -----------------
+# ----------------- GIAO DIỆN TABS -----------------
 st.title("⚡ PDF & LaTeX to Word Studio")
 
 tab1, tab2 = st.tabs([
@@ -163,22 +177,21 @@ tab1, tab2 = st.tabs([
     "2️⃣ Chuyển đổi LaTeX (.tex) sang Word (.docx)"
 ])
 
-# TAB 1: PDF SANG LATEX
 with tab1:
     st.subheader("Nhận diện PDF bài tập $\\rightarrow$ Sinh mã LaTeX / TikZ")
-    up_pdf = st.file_uploader("📁 Tải lên file PDF:", type=["pdf"], key="pdf_tab1")
-    prompt_txt = st.text_area("Yêu cầu nhận diện:", value="Chuyển toàn bộ bài tập trong PDF sang LaTeX. Vẽ tất cả hình bằng môi trường tikzpicture.")
+    up_pdf = st.file_uploader("📁 Chọn file PDF bài tập:", type=["pdf"], key="pdf_tab1")
+    prompt_txt = st.text_area("Yêu cầu bổ sung:", value="Chuyển toàn bộ bài tập trong PDF sang LaTeX. Dựng toàn bộ hình vẽ bằng môi trường tikzpicture.")
 
     if st.button("🚀 Gửi PDF lên Gemini & Tạo LaTeX", type="primary"):
         if not st.session_state["gemini_keys"]:
             st.error("⚠️ Cần thêm ít nhất 1 API Key ở sidebar!")
         elif not up_pdf:
-            st.warning("⚠️ Hãy chọn file PDF.")
+            st.warning("⚠️ Hãy chọn file PDF trước.")
         else:
-            with st.spinner("Gemini đang đọc PDF và sinh mã LaTeX/TikZ..."):
+            with st.spinner("Gemini 3.7 Flash đang đọc PDF và sinh mã LaTeX/TikZ (khoảng 15-30s)..."):
                 try:
                     rotator = GeminiKeyRotator(st.session_state["gemini_keys"])
-                    raw_out = rotator.convert_pdf_to_latex(up_pdf.read(), prompt_txt)
+                    raw_out = rotator.convert_pdf_to_latex(up_pdf.read(), prompt_txt, model="gemini-3.7-flash")
                     clean_tex = re.sub(r"^```latex\s*|^```\s*", "", raw_out, flags=re.MULTILINE)
                     clean_tex = re.sub(r"```$", "", clean_tex.strip())
                     
@@ -192,15 +205,9 @@ with tab1:
         st.text_area("Mã LaTeX thu được:", value=st.session_state["current_tex_code"], height=300)
         
         c1, c2 = st.columns([1, 1])
-        c1.download_button(
-            "📥 Tải file .tex về máy",
-            data=st.session_state["current_tex_code"],
-            file_name="output.tex",
-            mime="text/x-tex"
-        )
-        c2.info("👉 Chuyển sang **Tab 2** để chuyển mã này thành file Word (.docx)!")
+        c1.download_button("📥 Tải file .tex về máy", data=st.session_state["current_tex_code"], file_name="output.tex", mime="text/x-tex")
+        c2.info("👉 Chuyển sang **Tab 2** để xuất mã này thành Word (.docx)!")
 
-# TAB 2: LATEX SANG WORD
 with tab2:
     st.subheader("Chuyển mã LaTeX (.tex) sang Word (.docx)")
     
@@ -209,23 +216,23 @@ with tab2:
         st.session_state["current_tex_code"] = up_tex.read().decode("utf-8", errors="ignore")
 
     tex_input = st.text_area(
-        "Nội dung mã LaTeX cần xuất Word (đã đồng bộ tự động từ Tab 1):",
+        "Nội dung mã LaTeX cần xuất Word (đã tự động nhận từ Tab 1):",
         value=st.session_state["current_tex_code"],
         height=350
     )
 
     if st.button("🚀 Chuyển đổi mã này sang Word (.docx)", type="primary"):
         if not tex_input.strip():
-            st.warning("⚠️ Mã LaTeX trống. Vui lòng nhập mã hoặc thực hiện OCR ở Tab 1 trước.")
+            st.warning("⚠️ Mã LaTeX trống. Vui lòng nhận diện ở Tab 1 trước hoặc dán mã vào.")
         else:
-            with st.spinner("Đang biên dịch hình TikZ và tạo tài liệu Word MathML..."):
+            with st.spinner("Đang biên dịch hình TikZ và tạo file Word MathML..."):
                 try:
                     docx_data, total_imgs = convert_latex_to_docx(tex_input)
-                    st.success(f"✅ Đã xuất Word thành công! Xử lý hoàn tất {total_imgs} hình vẽ TikZ.")
+                    st.success(f"✅ Đã xuất Word thành công! Hoàn tất {total_imgs} hình vẽ TikZ.")
                     st.download_button(
                         label="📥 Tải file Word (.docx) về máy",
                         data=docx_data,
-                        file_name="Tai_Lieu_Hoan_Chinh.docx",
+                        file_name="Tai_Lieu_Word.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         type="primary"
                     )
