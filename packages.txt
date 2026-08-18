@@ -1,4 +1,8 @@
 texlive-latex-base
+texlive-latex-extra
+texlive-fonts-recommended
+texlive-fonts-extra
+texlive-lang-other
 texlive-pictures
 poppler-utils
 pandoc
