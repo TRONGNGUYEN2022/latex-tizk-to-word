@@ -1,7 +1,6 @@
 import itertools
 import threading
 import base64
-import io
 import requests
 
 class GeminiKeyRotator:
@@ -16,46 +15,54 @@ class GeminiKeyRotator:
         with self._lock:
             return next(self._key_cycle)
 
-    def generate_content_with_retry(
+    def convert_pdf_to_latex(
         self,
-        contents: list,
-        model: str = "gemini-2.5-flash",
-        system_instruction: str = None
+        pdf_bytes: bytes,
+        prompt_instruction: str,
+        model: str = "gemini-2.5-flash"
     ) -> str:
         attempts = len(self.api_keys)
         last_error = None
 
-        # Chuẩn bị payload chuẩn theo định dạng REST của Google
-        parts = []
-        for item in contents:
-            if isinstance(item, str):
-                parts.append({"text": item})
-            else:
-                # Chuyển đổi ảnh PIL sang Base64
-                buf = io.BytesIO()
-                item.save(buf, format="JPEG", quality=90)
-                b64_img = base64.b64encode(buf.getvalue()).decode("utf-8")
-                parts.append({
-                    "inline_data": {
-                        "mime_type": "image/jpeg",
-                        "data": b64_img
-                    }
-                })
+        pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+
+        system_instruction = (
+            "Bạn là chuyên gia chuyển đổi tài liệu đề thi Toán sang LaTeX. "
+            "Nhiệm vụ: Chuyển đổi toàn bộ nội dung trong PDF thành mã nguồn LaTeX hoàn chỉnh. "
+            "Tất cả công thức toán đặt trong $...$ hoặc $$...$$. "
+            "Các hình vẽ hình học, đồ thị BẮT BUỘC dựng bằng môi trường \\begin{tikzpicture}...\\end{tikzpicture}. "
+            "Chỉ trả về trực tiếp mã LaTeX thuần giữa \\begin{document} và \\end{document}."
+        )
 
         payload = {
-            "contents": [{"parts": parts}],
-            "generationConfig": {"temperature": 0.2}
-        }
-        if system_instruction:
-            payload["systemInstruction"] = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "inline_data": {
+                                "mime_type": "application/pdf",
+                                "data": pdf_b64
+                            }
+                        },
+                        {
+                            "text": prompt_instruction
+                        }
+                    ]
+                }
+            ],
+            "systemInstruction": {
                 "parts": [{"text": system_instruction}]
+            },
+            "generationConfig": {
+                "temperature": 0.2
             }
+        }
 
         for _ in range(attempts):
             api_key = self.get_next_key()
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
             try:
-                res = requests.post(url, json=payload, timeout=60)
+                res = requests.post(url, json=payload, timeout=120)
                 if res.status_code == 200:
                     data = res.json()
                     candidates = data.get("candidates", [])
@@ -71,4 +78,4 @@ class GeminiKeyRotator:
                 last_error = str(e)
                 continue
 
-        raise RuntimeError(f"Tất cả {attempts} API Keys đều gặp lỗi. Chi tiết: {last_error}")
+        raise RuntimeError(f"Tất cả {attempts} API Keys đều gặp sự cố. Chi tiết: {last_error}")
