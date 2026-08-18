@@ -1,7 +1,8 @@
 import itertools
 import threading
-from google import genai
-from google.genai import types
+import base64
+import io
+import requests
 
 class GeminiKeyRotator:
     def __init__(self, api_keys: list[str]):
@@ -11,10 +12,9 @@ class GeminiKeyRotator:
         self._key_cycle = itertools.cycle(self.api_keys)
         self._lock = threading.Lock()
 
-    def get_next_client(self) -> tuple[genai.Client, str]:
+    def get_next_key(self) -> str:
         with self._lock:
-            key = next(self._key_cycle)
-        return genai.Client(api_key=key), key
+            return next(self._key_cycle)
 
     def generate_content_with_retry(
         self,
@@ -25,25 +25,50 @@ class GeminiKeyRotator:
         attempts = len(self.api_keys)
         last_error = None
 
-        config = types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            temperature=0.2
-        ) if system_instruction else None
+        # Chuẩn bị payload chuẩn theo định dạng REST của Google
+        parts = []
+        for item in contents:
+            if isinstance(item, str):
+                parts.append({"text": item})
+            else:
+                # Chuyển đổi ảnh PIL sang Base64
+                buf = io.BytesIO()
+                item.save(buf, format="JPEG", quality=90)
+                b64_img = base64.b64encode(buf.getvalue()).decode("utf-8")
+                parts.append({
+                    "inline_data": {
+                        "mime_type": "image/jpeg",
+                        "data": b64_img
+                    }
+                })
+
+        payload = {
+            "contents": [{"parts": parts}],
+            "generationConfig": {"temperature": 0.2}
+        }
+        if system_instruction:
+            payload["systemInstruction"] = {
+                "parts": [{"text": system_instruction}]
+            }
 
         for _ in range(attempts):
-            client, key = self.get_next_client()
+            api_key = self.get_next_key()
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
             try:
-                response = client.models.generate_content(
-                    model=model,
-                    contents=contents,
-                    config=config
-                )
-                return response.text
-            except Exception as e:
-                last_error = e
-                err_str = str(e).lower()
-                if "429" in err_str or "quota" in err_str or "resource_exhausted" in err_str:
+                res = requests.post(url, json=payload, timeout=60)
+                if res.status_code == 200:
+                    data = res.json()
+                    candidates = data.get("candidates", [])
+                    if candidates and "content" in candidates[0]:
+                        text_parts = candidates[0]["content"].get("parts", [])
+                        return "".join([p.get("text", "") for p in text_parts])
+                    return ""
+                elif res.status_code in [429, 403]:
                     continue
-                raise e
+                else:
+                    last_error = f"HTTP {res.status_code}: {res.text}"
+            except Exception as e:
+                last_error = str(e)
+                continue
 
-        raise RuntimeError(f"Tất cả {attempts} API Keys đều gặp lỗi hoặc hết quota. Chi tiết: {last_error}")
+        raise RuntimeError(f"Tất cả {attempts} API Keys đều gặp lỗi. Chi tiết: {last_error}")
