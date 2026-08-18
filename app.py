@@ -5,23 +5,61 @@ import subprocess
 import tempfile
 import shutil
 import base64
-from pdf2image import convert_from_path
+import io
+from PIL import Image
+from pdf2image import convert_from_path, convert_from_bytes
 import pypandoc
+from gemini_rotator import GeminiKeyRotator
 
-st.set_page_config(page_title="LaTeX & TikZ Studio Pro", layout="wide")
+st.set_page_config(page_title="LaTeX, TikZ & Gemini Studio Pro", layout="wide")
 
+# ----------------- QUẢN LÝ DANH SÁCH API KEYS -----------------
+if "gemini_keys" not in st.session_state:
+    st.session_state["gemini_keys"] = []
+
+with st.sidebar:
+    st.header("🔑 Quản lý Gemini API Keys")
+    
+    # Form thêm Key mới
+    with st.form("add_key_form", clear_on_submit=True):
+        new_key = st.text_input("Nhập API Key mới:", type="password", placeholder="AIzaSy...")
+        btn_add = st.form_submit_button("➕ Thêm Key")
+        if btn_add and new_key.strip():
+            if new_key.strip() not in st.session_state["gemini_keys"]:
+                st.session_state["gemini_keys"].append(new_key.strip())
+                st.success("Đã thêm Key thành công!")
+            else:
+                st.warning("Key này đã tồn tại trong danh sách.")
+
+    # Hiển thị danh sách Key dạng List
+    st.markdown("### 📋 Danh sách Key hiện có:")
+    if st.session_state["gemini_keys"]:
+        keys_to_remove = []
+        for idx, k in enumerate(st.session_state["gemini_keys"]):
+            col_k1, col_k2 = st.columns([3.5, 1])
+            col_k1.code(f"Key #{idx+1}: {k[:4]}...{k[-4:]}")
+            if col_k2.button("🗑️", key=f"del_{idx}"):
+                keys_to_remove.append(idx)
+
+        if keys_to_remove:
+            for idx in reversed(keys_to_remove):
+                st.session_state["gemini_keys"].pop(idx)
+            st.rerun()
+
+        if st.button("🔄 Đổi/Xóa toàn bộ Keys", type="secondary"):
+            st.session_state["gemini_keys"] = []
+            st.rerun()
+    else:
+        st.info("Chưa có Key nào. Vui lòng thêm ít nhất 1 Key để sử dụng OCR AI.")
+
+# ----------------- CÁC HÀM XỬ LÝ LATEX VÀ TIKZ -----------------
 def compile_raw_tikz_to_formats(tikz_code, output_dir, dpi=300):
-    """
-    Biên dịch khối TikZ sang PDF, PNG, JPEG và xử lý triệt để lỗi LR mode
-    """
     clean_tikz = tikz_code.strip()
-    # Loại bỏ các thẻ căn lề khối gây xung đột với standalone
     clean_tikz = re.sub(r"\\begin\{center\}", "", clean_tikz)
     clean_tikz = re.sub(r"\\end\{center\}", "", clean_tikz)
     clean_tikz = re.sub(r"\\centering", "", clean_tikz)
     clean_tikz = clean_tikz.strip()
 
-    # Tự động trích xuất hoặc bao bọc môi trường tikzpicture
     if not clean_tikz.startswith(r"\begin{tikzpicture}"):
         match = re.search(r"(\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\})", clean_tikz)
         if match:
@@ -64,11 +102,8 @@ def compile_raw_tikz_to_formats(tikz_code, output_dir, dpi=300):
 
     png_path = os.path.join(output_dir, f"{job_name}.png")
     jpg_path = os.path.join(output_dir, f"{job_name}.jpg")
-
     images[0].save(png_path, "PNG")
-
-    rgb_img = images[0].convert('RGB')
-    rgb_img.save(jpg_path, "JPEG", quality=95)
+    images[0].convert('RGB').save(jpg_path, "JPEG", quality=95)
 
     with open(png_path, "rb") as f:
         png_bytes = f.read()
@@ -77,17 +112,9 @@ def compile_raw_tikz_to_formats(tikz_code, output_dir, dpi=300):
     with open(pdf_file, "rb") as f:
         pdf_bytes = f.read()
 
-    return {
-        "png": png_bytes,
-        "jpeg": jpg_bytes,
-        "pdf": pdf_bytes,
-        "preview_img": images[0]
-    }
+    return {"png": png_bytes, "jpeg": jpg_bytes, "pdf": pdf_bytes, "preview_img": images[0]}
 
 def convert_latex_to_html_preview(tex_file, temp_dir):
-    """
-    Chuyển đổi TeX sang trang A4 độc lập kèm MathJax và nút sao chép trực tiếp vào Word
-    """
     try:
         html_out = os.path.join(temp_dir, "preview.html")
         pypandoc.convert_file(
@@ -120,9 +147,6 @@ def convert_latex_to_html_preview(tex_file, temp_dir):
             inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],
             displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']],
             processEscapes: true
-          }},
-          options: {{
-            skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code']
           }}
         }};
     </script>
@@ -130,44 +154,19 @@ def convert_latex_to_html_preview(tex_file, temp_dir):
     <style>
         body {{
             background-color: #525659;
-            margin: 0;
-            padding: 20px 10px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            margin: 0; padding: 20px 10px;
+            display: flex; flex-direction: column; align-items: center;
             font-family: "Times New Roman", Times, serif;
         }}
-        .toolbar {{
-            width: 100%;
-            max-width: 800px;
-            display: flex;
-            justify-content: flex-end;
-            margin-bottom: 12px;
-        }}
+        .toolbar {{ width: 100%; max-width: 800px; display: flex; justify-content: flex-end; margin-bottom: 12px; }}
         .copy-btn {{
-            background-color: #0078d4;
-            color: white;
-            border: none;
-            padding: 9px 18px;
-            font-size: 14px;
-            font-weight: bold;
-            border-radius: 4px;
-            cursor: pointer;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-            transition: 0.2s;
+            background-color: #0078d4; color: white; border: none; padding: 9px 18px;
+            font-size: 14px; font-weight: bold; border-radius: 4px; cursor: pointer;
         }}
-        .copy-btn:hover {{ background-color: #106ebe; }}
         .a4-page {{
-            background-color: white;
-            width: 100%;
-            max-width: 800px;
-            min-height: 1050px;
-            padding: 50px 60px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.4);
-            font-size: 15.5px;
-            line-height: 1.6;
-            color: #111;
-            box-sizing: border-box;
+            background-color: white; width: 100%; max-width: 800px; min-height: 1050px;
+            padding: 50px 60px; box-shadow: 0 4px 15px rgba(0,0,0,0.4); font-size: 15.5px;
+            line-height: 1.6; color: #111; box-sizing: border-box;
         }}
         img {{ max-width: 85%; height: auto; display: block; margin: 15px auto; }}
         table {{ border-collapse: collapse; width: 100%; margin: 15px 0; }}
@@ -178,18 +177,14 @@ def convert_latex_to_html_preview(tex_file, temp_dir):
     <div class="toolbar">
         <button class="copy-btn" id="copyButton" onclick="copyDocumentToWord()">📋 Sao chép nội dung (Dán vào Word)</button>
     </div>
-    <div class="a4-page" id="doc-content">
-        {html_body}
-    </div>
+    <div class="a4-page" id="doc-content">{html_body}</div>
     <script>
         async function copyDocumentToWord() {{
             const docElement = document.getElementById("doc-content");
             const btn = document.getElementById("copyButton");
             try {{
-                const htmlContent = docElement.innerHTML;
-                const textContent = docElement.innerText;
-                const blobHtml = new Blob([htmlContent], {{ type: "text/html" }});
-                const blobText = new Blob([textContent], {{ type: "text/plain" }});
+                const blobHtml = new Blob([docElement.innerHTML], {{ type: "text/html" }});
+                const blobText = new Blob([docElement.innerText], {{ type: "text/plain" }});
                 const data = [new ClipboardItem({{ "text/html": blobHtml, "text/plain": blobText }})];
                 await navigator.clipboard.write(data);
                 btn.innerText = "✅ Đã sao chép! Mở Word và bấm Ctrl+V";
@@ -199,25 +194,12 @@ def convert_latex_to_html_preview(tex_file, temp_dir):
                     btn.style.backgroundColor = "#0078d4";
                 }}, 3500);
             }} catch (err) {{
-                const selection = window.getSelection();
-                const range = document.createRange();
-                range.selectNodeContents(docElement);
-                selection.removeAllRanges();
-                selection.addRange(range);
                 document.execCommand('copy');
-                selection.removeAllRanges();
-                btn.innerText = "✅ Đã sao chép! Mở Word và bấm Ctrl+V";
-                btn.style.backgroundColor = "#107c41";
-                setTimeout(() => {{
-                    btn.innerText = "📋 Sao chép nội dung (Dán vào Word)";
-                    btn.style.backgroundColor = "#0078d4";
-                }}, 3500);
             }}
         }}
     </script>
 </body>
-</html>
-"""
+</html>"""
         b64_html = base64.b64encode(standalone_html.encode('utf-8')).decode('utf-8')
         return f'<iframe src="data:text/html;base64,{b64_html}" style="width:100%; height:900px; border:none; border-radius:8px;"></iframe>'
     except Exception as e:
@@ -226,8 +208,14 @@ def convert_latex_to_html_preview(tex_file, temp_dir):
 def process_latex_document(raw_tex):
     temp_dir = tempfile.mkdtemp()
     try:
+        # Chuẩn hóa nếu code có bao gồm cả documentclass
+        content = raw_tex
+        body_match = re.search(r"\\begin\{document\}([\s\S]*?)\\end\{document\}", raw_tex)
+        if body_match:
+            content = body_match.group(1)
+
         tikz_pattern = re.compile(r"(\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\})")
-        parts = tikz_pattern.split(raw_tex)
+        parts = tikz_pattern.split(content)
         reconstructed_tex = []
         img_counter = 0
 
@@ -267,12 +255,95 @@ def process_latex_document(raw_tex):
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-# Giao diện chính Streamlit
-st.title("⚡ LaTeX & TikZ Studio")
+# ----------------- GIAO DIỆN ỨNG DỤNG -----------------
+st.title("⚡ LaTeX & TikZ Studio (Tích hợp AI Gemini)")
 
-tab1, tab2 = st.tabs(["🎨 Vẽ & Tải Ảnh TikZ Trực Tiếp", "📄 Chuyển Đổi Tài Liệu LaTeX Sang Word"])
+tab_ai, tab1, tab2 = st.tabs([
+    "🤖 OCR PDF/Ảnh sang Word (Gemini)",
+    "🎨 Vẽ & Tải Ảnh TikZ Trực Tiếp",
+    "📄 Chuyển Đổi Mã LaTeX Sang Word"
+])
 
-# TAB 1: Xuất ảnh TikZ đơn lẻ
+# TAB 0: CONVERT PDF/IMAGE SANG WORD BẰNG GEMINI
+with tab_ai:
+    st.subheader("Chuyển đổi trực tiếp tài liệu PDF hoặc Ảnh sang file Word (.docx)")
+    st.markdown("Hệ thống tự động dùng **Gemini Vision** nhận diện công thức, bảng biểu, sinh mã TikZ hình vẽ và đóng gói thành Word.")
+
+    col_ai1, col_ai2 = st.columns([1, 1])
+    with col_ai1:
+        uploaded_media = st.file_uploader("📁 Chọn file PDF hoặc Ảnh bài tập:", type=["pdf", "png", "jpg", "jpeg"])
+        ocr_prompt = st.text_area(
+            "Yêu cầu bổ sung cho AI (tuỳ chọn):",
+            value="Hãy chuyển đổi toàn bộ đề toán và lời giải sang mã LaTeX chuẩn. Với các hình vẽ hình học hoặc đồ thị, hãy dựng bằng TikZ/pgfplots chính xác 100%."
+        )
+        btn_start_ai = st.button("🚀 Bắt đầu nhận diện & Chuyển sang Word", type="primary")
+
+    if btn_start_ai:
+        if not st.session_state["gemini_keys"]:
+            st.error("⚠️ Vui lòng thêm ít nhất một Gemini API Key ở thanh Sidebar bên trái!")
+        elif uploaded_media is None:
+            st.warning("⚠️ Vui lòng tải lên file PDF hoặc Ảnh cần chuyển đổi!")
+        else:
+            with st.spinner("Đang xử lý qua Gemini AI và biên dịch TikZ..."):
+                try:
+                    rotator = GeminiKeyRotator(st.session_state["gemini_keys"])
+                    media_bytes = uploaded_media.read()
+                    pil_images = []
+
+                    if uploaded_media.name.lower().endswith(".pdf"):
+                        pil_images = convert_from_bytes(media_bytes, dpi=150)
+                    else:
+                        pil_images = [Image.open(io.BytesIO(media_bytes))]
+
+                    sys_inst = """Bạn là chuyên gia chuyển đổi tài liệu Toán học sang LaTeX.
+Nhiệm vụ: Chuyển toàn bộ nội dung trong ảnh thành mã LaTeX. 
+Mọi công thức toán nằm trong $...$ hoặc $$...$$. 
+Tất cả hình vẽ hình học, đồ thị hàm số, bảng biến thiên BẮT BUỘC dựng bằng môi trường \\begin{tikzpicture}...\\end{tikzpicture}.
+Chỉ trả về trực tiếp mã LaTeX giữa \\begin{document} và \\end{document}, không viết lời mở đầu."""
+
+                    contents_payload = [ocr_prompt]
+                    for img in pil_images:
+                        contents_payload.append(img)
+
+                    ai_latex_code = rotator.generate_content_with_retry(
+                        contents=contents_payload,
+                        model="gemini-2.5-flash",
+                        system_instruction=sys_inst
+                    )
+                    
+                    # Làm sạch markdown codeblock nếu có
+                    ai_latex_code = re.sub(r"^```latex\s*", "", ai_latex_code, flags=re.MULTILINE)
+                    ai_latex_code = re.sub(r"^```\s*", "", ai_latex_code, flags=re.MULTILINE)
+
+                    docx_bytes, preview_html, total_img = process_latex_document(ai_latex_code)
+                    
+                    st.session_state["ai_docx"] = docx_bytes
+                    st.session_state["ai_preview"] = preview_html
+                    st.session_state["ai_code"] = ai_latex_code
+                    st.success(f"✅ Hoàn tất nhận diện! Đã trích xuất và dựng thành công {total_img} hình TikZ.")
+                except Exception as e:
+                    st.error(f"❌ Xảy ra lỗi: {str(e)}")
+
+    with col_ai2:
+        if "ai_docx" in st.session_state:
+            st.markdown("### 📥 Tải Về Kết Quả Word")
+            st.download_button(
+                label="📥 Tải file Word (.docx)",
+                data=st.session_state["ai_docx"],
+                file_name="Tai_Lieu_Gemini_OCR.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary",
+                use_container_width=True
+            )
+            with st.expander("📝 Xem mã nguồn LaTeX AI đã sinh"):
+                st.code(st.session_state.get("ai_code", ""), language="latex")
+
+    st.markdown("---")
+    st.subheader("📑 Bản Xem Trước A4")
+    if "ai_preview" in st.session_state:
+        st.components.v1.html(st.session_state["ai_preview"], height=900, scrolling=True)
+
+# TAB 1: RENDER VÀ TẢI ẢNH TIKZ RIÊNG LẺ
 with tab1:
     st.subheader("Dán mã TikZ $\\rightarrow$ Xem trước & Tải về file ảnh (PNG / JPEG / PDF)")
     col_t1, col_t2 = st.columns([1.1, 1])
@@ -295,71 +366,43 @@ with tab1:
                 try:
                     temp_dir = tempfile.mkdtemp()
                     img_data = compile_raw_tikz_to_formats(tikz_single_code, temp_dir, dpi=dpi_choice)
-                    
                     st.success("✅ Biên dịch thành công!")
-                    st.image(img_data["preview_img"], caption="Bản xem trước hình ảnh", use_container_width=True)
+                    st.image(img_data["preview_img"], caption="Bản xem trước", use_container_width=True)
                     
-                    st.markdown("### 📥 Chọn định dạng tải về:")
                     dcol1, dcol2, dcol3 = st.columns(3)
-                    with dcol1:
-                        st.download_button(
-                            label="Tải ảnh PNG",
-                            data=img_data["png"],
-                            file_name="tikz_hinh_ve.png",
-                            mime="image/png",
-                            use_container_width=True
-                        )
-                    with dcol2:
-                        st.download_button(
-                            label="Tải ảnh JPEG",
-                            data=img_data["jpeg"],
-                            file_name="tikz_hinh_ve.jpg",
-                            mime="image/jpeg",
-                            use_container_width=True
-                        )
-                    with dcol3:
-                        st.download_button(
-                            label="Tải file PDF",
-                            data=img_data["pdf"],
-                            file_name="tikz_hinh_ve.pdf",
-                            mime="application/pdf",
-                            use_container_width=True
-                        )
+                    dcol1.download_button("Tải PNG", img_data["png"], "tikz.png", "image/png", use_container_width=True)
+                    dcol2.download_button("Tải JPEG", img_data["jpeg"], "tikz.jpg", "image/jpeg", use_container_width=True)
+                    dcol3.download_button("Tải PDF", img_data["pdf"], "tikz.pdf", "application/pdf", use_container_width=True)
                     shutil.rmtree(temp_dir, ignore_errors=True)
                 except Exception as e:
                     st.error(f"❌ {str(e)}")
 
-# TAB 2: Chuyển toàn bộ tài liệu sang Word
+# TAB 2: CHUYỂN ĐỔI LATEX DOCUMENT SANG WORD
 with tab2:
-    st.subheader("Chuyển toàn bộ file/mã LaTeX sang Word (.docx)")
+    st.subheader("Chuyển toàn bộ file/mã LaTeX thủ công sang Word (.docx)")
     c1, c2 = st.columns([1, 1])
     with c1:
-        uploaded_doc = st.file_uploader("📁 Tải file .tex lên", type=["tex", "txt"], key="doc_uploader")
-        doc_text = st.text_area("Hoặc dán toàn bộ tài liệu LaTeX tại đây:", height=200, key="doc_text")
-        btn_convert_doc = st.button("🚀 Bắt đầu chuyển đổi sang Word", type="primary", key="btn_doc")
+        uploaded_doc = st.file_uploader("📁 Tải file .tex", type=["tex", "txt"], key="manual_tex")
+        doc_text = st.text_area("Hoặc dán mã LaTeX tại đây:", height=200, key="manual_text")
+        btn_convert_doc = st.button("🚀 Chuyển đổi sang Word", type="primary", key="btn_manual")
 
-    raw_doc = ""
-    if uploaded_doc is not None:
-        raw_doc = uploaded_doc.read().decode("utf-8", errors="ignore")
-    elif doc_text.strip():
-        raw_doc = doc_text
+    raw_doc = uploaded_doc.read().decode("utf-8", errors="ignore") if uploaded_doc else doc_text
 
     if btn_convert_doc and raw_doc.strip():
-        with st.spinner("Đang xử lý toàn bộ tài liệu và phương trình MathML..."):
+        with st.spinner("Đang xử lý sang MathML..."):
             try:
                 docx_bytes, preview_html, total_img = process_latex_document(raw_doc)
-                st.session_state["full_docx"] = docx_bytes
-                st.session_state["full_preview"] = preview_html
-                st.success(f"✅ Chuyển đổi thành công! Đã tự động vẽ {total_img} hình TikZ.")
+                st.session_state["man_docx"] = docx_bytes
+                st.session_state["man_preview"] = preview_html
+                st.success(f"✅ Đã xử lý {total_img} hình TikZ.")
             except Exception as e:
                 st.error(f"❌ {str(e)}")
 
     with c2:
-        if "full_docx" in st.session_state:
-            st.markdown("### 📥 Tải File Word")
+        if "man_docx" in st.session_state:
             st.download_button(
                 label="📥 Tải file Word (.docx)",
-                data=st.session_state["full_docx"],
+                data=st.session_state["man_docx"],
                 file_name="Tai_Lieu_Word.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 type="primary",
@@ -367,6 +410,6 @@ with tab2:
             )
 
     st.markdown("---")
-    st.subheader("📑 Bản Xem Trước Trang Tài Liệu A4 (Kèm nút Copy sang Word)")
-    if "full_preview" in st.session_state:
-        st.components.v1.html(st.session_state["full_preview"], height=900, scrolling=True)
+    st.subheader("📑 Bản Xem Trước A4")
+    if "man_preview" in st.session_state:
+        st.components.v1.html(st.session_state["man_preview"], height=900, scrolling=True)
