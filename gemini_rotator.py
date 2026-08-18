@@ -1,6 +1,7 @@
 import itertools
 import threading
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 class GeminiKeyRotator:
     def __init__(self, api_keys: list[str]):
@@ -10,28 +11,33 @@ class GeminiKeyRotator:
         self._key_cycle = itertools.cycle(self.api_keys)
         self._lock = threading.Lock()
 
-    def get_next_key(self) -> str:
+    def get_next_client(self) -> tuple[genai.Client, str]:
         with self._lock:
-            return next(self._key_cycle)
+            key = next(self._key_cycle)
+        return genai.Client(api_key=key), key
 
     def generate_content_with_retry(
         self,
         contents: list,
-        model_name: str = "gemini-1.5-flash",
+        model: str = "gemini-2.5-flash",
         system_instruction: str = None
     ) -> str:
         attempts = len(self.api_keys)
         last_error = None
 
+        config = types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=0.2
+        ) if system_instruction else None
+
         for _ in range(attempts):
-            key = self.get_next_key()
+            client, key = self.get_next_client()
             try:
-                genai.configure(api_key=key)
-                model = genai.GenerativeModel(
-                    model_name=model_name,
-                    system_instruction=system_instruction
+                response = client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=config
                 )
-                response = model.generate_content(contents)
                 return response.text
             except Exception as e:
                 last_error = e
@@ -40,4 +46,4 @@ class GeminiKeyRotator:
                     continue
                 raise e
 
-        raise RuntimeError(f"Tất cả {attempts} API Keys đều gặp lỗi hoặc hết hạn ngạch. Chi tiết: {last_error}")
+        raise RuntimeError(f"Tất cả {attempts} API Keys đều gặp lỗi hoặc hết quota. Chi tiết: {last_error}")

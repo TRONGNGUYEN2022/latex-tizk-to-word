@@ -12,9 +12,9 @@ from pdf2image import convert_from_path, convert_from_bytes
 import pypandoc
 from gemini_rotator import GeminiKeyRotator
 
-st.set_page_config(page_title="LaTeX, TikZ & Gemini Studio Pro", layout="wide")
+st.set_page_config(page_title="LaTeX & TikZ Studio Pro", layout="wide")
 
-# ----------------- QUẢN LÝ LƯU TRỮ API KEYS (api_keys.json) -----------------
+# ----------------- LƯU TRỮ VĨNH VIỄN API KEYS -----------------
 KEYS_FILE = "api_keys.json"
 
 def load_saved_keys():
@@ -32,15 +32,13 @@ def save_keys_to_file(keys):
         with open(KEYS_FILE, "w", encoding="utf-8") as f:
             json.dump(keys, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        st.error(f"Không thể lưu danh sách key vào file: {e}")
+        st.error(f"Không thể lưu file key: {e}")
 
 if "gemini_keys" not in st.session_state:
     st.session_state["gemini_keys"] = load_saved_keys()
 
-# ----------------- SIDEBAR CẤU HÌNH API KEYS -----------------
 with st.sidebar:
     st.header("🔑 Quản lý Gemini API Keys")
-    
     with st.form("add_key_form", clear_on_submit=True):
         new_key = st.text_input("Nhập API Key mới:", type="password", placeholder="AIzaSy...")
         btn_add = st.form_submit_button("➕ Thêm & Lưu Vĩnh Viễn")
@@ -75,7 +73,7 @@ with st.sidebar:
             save_keys_to_file([])
             st.rerun()
     else:
-        st.info("Chưa có Key nào. Vui lòng thêm ít nhất 1 Key để sử dụng tính năng OCR AI.")
+        st.info("Chưa có Key nào. Vui lòng thêm ít nhất 1 Key để sử dụng OCR AI.")
 
 # ----------------- XỬ LÝ BIÊN DỊCH TIKZ VÀ LATEX -----------------
 def compile_raw_tikz_to_formats(tikz_code, output_dir, dpi=300):
@@ -281,8 +279,8 @@ def process_latex_document(raw_tex):
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-# ----------------- GIAO DIỆN ỨNG DỤNG STREAMLIT -----------------
-st.title("⚡ LaTeX & TikZ Studio (Tích hợp AI Gemini)")
+# ----------------- GIAO DIỆN STREAMLIT -----------------
+st.title("⚡ LaTeX & TikZ Studio")
 
 tab_ai, tab1, tab2 = st.tabs([
     "🤖 OCR PDF/Ảnh sang Word (Gemini)",
@@ -293,8 +291,6 @@ tab_ai, tab1, tab2 = st.tabs([
 # TAB 0: CONVERT PDF/IMAGE SANG WORD
 with tab_ai:
     st.subheader("Chuyển đổi trực tiếp tài liệu PDF hoặc Ảnh sang file Word (.docx)")
-    st.markdown("Hệ thống tự động dùng **Gemini Vision** nhận diện công thức, bảng biểu, tự động sinh mã TikZ hình vẽ và đóng gói thành Word.")
-
     col_ai1, col_ai2 = st.columns([1, 1])
     with col_ai1:
         uploaded_media = st.file_uploader("📁 Chọn file PDF hoặc Ảnh bài tập:", type=["pdf", "png", "jpg", "jpeg"])
@@ -333,7 +329,7 @@ Chỉ trả về trực tiếp mã LaTeX giữa \\begin{document} và \\end{docu
 
                     ai_latex_code = rotator.generate_content_with_retry(
                         contents=contents_payload,
-                        model_name="gemini-1.5-flash",
+                        model="gemini-2.5-flash",
                         system_instruction=sys_inst
                     )
                     
@@ -402,7 +398,7 @@ with tab1:
                 except Exception as e:
                     st.error(f"❌ {str(e)}")
 
-# TAB 2: CHUYỂN ĐỔI LATEX SANG WORD THỦ CÔNG
+# TAB 2: CHUYỂN ĐỔI LATEX DOCUMENT SANG WORD THỦ CÔNG
 with tab2:
     st.subheader("Chuyển toàn bộ file/mã LaTeX thủ công sang Word (.docx)")
     c1, c2 = st.columns([1, 1])
