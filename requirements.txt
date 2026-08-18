@@ -1,3 +1,5 @@
 streamlit
 pdf2image
 pypandoc
+Pillow
+google-genai
