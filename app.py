@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import re
+import json
 import subprocess
 import tempfile
 import shutil
@@ -13,46 +14,70 @@ from gemini_rotator import GeminiKeyRotator
 
 st.set_page_config(page_title="LaTeX, TikZ & Gemini Studio Pro", layout="wide")
 
-# ----------------- QUẢN LÝ DANH SÁCH API KEYS -----------------
-if "gemini_keys" not in st.session_state:
-    st.session_state["gemini_keys"] = []
+# ----------------- QUẢN LÝ LƯU TRỮ API KEYS (api_keys.json) -----------------
+KEYS_FILE = "api_keys.json"
 
+def load_saved_keys():
+    if os.path.exists(KEYS_FILE):
+        try:
+            with open(KEYS_FILE, "r", encoding="utf-8") as f:
+                keys = json.load(f)
+                return [k.strip() for k in keys if isinstance(k, str) and k.strip()]
+        except Exception:
+            return []
+    return []
+
+def save_keys_to_file(keys):
+    try:
+        with open(KEYS_FILE, "w", encoding="utf-8") as f:
+            json.dump(keys, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        st.error(f"Không thể lưu danh sách key vào file: {e}")
+
+if "gemini_keys" not in st.session_state:
+    st.session_state["gemini_keys"] = load_saved_keys()
+
+# ----------------- SIDEBAR CẤU HÌNH API KEYS -----------------
 with st.sidebar:
     st.header("🔑 Quản lý Gemini API Keys")
     
-    # Form thêm Key mới
     with st.form("add_key_form", clear_on_submit=True):
         new_key = st.text_input("Nhập API Key mới:", type="password", placeholder="AIzaSy...")
-        btn_add = st.form_submit_button("➕ Thêm Key")
+        btn_add = st.form_submit_button("➕ Thêm & Lưu Vĩnh Viễn")
         if btn_add and new_key.strip():
-            if new_key.strip() not in st.session_state["gemini_keys"]:
-                st.session_state["gemini_keys"].append(new_key.strip())
-                st.success("Đã thêm Key thành công!")
+            k = new_key.strip()
+            if k not in st.session_state["gemini_keys"]:
+                st.session_state["gemini_keys"].append(k)
+                save_keys_to_file(st.session_state["gemini_keys"])
+                st.success("✅ Đã lưu Key vào hệ thống!")
+                st.rerun()
             else:
-                st.warning("Key này đã tồn tại trong danh sách.")
+                st.warning("Key này đã có trong danh sách.")
 
-    # Hiển thị danh sách Key dạng List
-    st.markdown("### 📋 Danh sách Key hiện có:")
+    st.markdown("### 📋 Danh sách Key đã lưu:")
     if st.session_state["gemini_keys"]:
         keys_to_remove = []
         for idx, k in enumerate(st.session_state["gemini_keys"]):
             col_k1, col_k2 = st.columns([3.5, 1])
-            col_k1.code(f"Key #{idx+1}: {k[:4]}...{k[-4:]}")
+            masked_key = f"{k[:4]}...{k[-4:]}" if len(k) >= 8 else "Key ẩn"
+            col_k1.code(f"#{idx+1}: {masked_key}")
             if col_k2.button("🗑️", key=f"del_{idx}"):
                 keys_to_remove.append(idx)
 
         if keys_to_remove:
             for idx in reversed(keys_to_remove):
                 st.session_state["gemini_keys"].pop(idx)
+            save_keys_to_file(st.session_state["gemini_keys"])
             st.rerun()
 
-        if st.button("🔄 Đổi/Xóa toàn bộ Keys", type="secondary"):
+        if st.button("🔄 Xóa toàn bộ Keys", type="secondary"):
             st.session_state["gemini_keys"] = []
+            save_keys_to_file([])
             st.rerun()
     else:
-        st.info("Chưa có Key nào. Vui lòng thêm ít nhất 1 Key để sử dụng OCR AI.")
+        st.info("Chưa có Key nào. Vui lòng thêm ít nhất 1 Key để sử dụng tính năng OCR AI.")
 
-# ----------------- CÁC HÀM XỬ LÝ LATEX VÀ TIKZ -----------------
+# ----------------- XỬ LÝ BIÊN DỊCH TIKZ VÀ LATEX -----------------
 def compile_raw_tikz_to_formats(tikz_code, output_dir, dpi=300):
     clean_tikz = tikz_code.strip()
     clean_tikz = re.sub(r"\\begin\{center\}", "", clean_tikz)
@@ -183,8 +208,10 @@ def convert_latex_to_html_preview(tex_file, temp_dir):
             const docElement = document.getElementById("doc-content");
             const btn = document.getElementById("copyButton");
             try {{
-                const blobHtml = new Blob([docElement.innerHTML], {{ type: "text/html" }});
-                const blobText = new Blob([docElement.innerText], {{ type: "text/plain" }});
+                const htmlContent = docElement.innerHTML;
+                const textContent = docElement.innerText;
+                const blobHtml = new Blob([htmlContent], {{ type: "text/html" }});
+                const blobText = new Blob([textContent], {{ type: "text/plain" }});
                 const data = [new ClipboardItem({{ "text/html": blobHtml, "text/plain": blobText }})];
                 await navigator.clipboard.write(data);
                 btn.innerText = "✅ Đã sao chép! Mở Word và bấm Ctrl+V";
@@ -208,7 +235,6 @@ def convert_latex_to_html_preview(tex_file, temp_dir):
 def process_latex_document(raw_tex):
     temp_dir = tempfile.mkdtemp()
     try:
-        # Chuẩn hóa nếu code có bao gồm cả documentclass
         content = raw_tex
         body_match = re.search(r"\\begin\{document\}([\s\S]*?)\\end\{document\}", raw_tex)
         if body_match:
@@ -255,7 +281,7 @@ def process_latex_document(raw_tex):
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-# ----------------- GIAO DIỆN ỨNG DỤNG -----------------
+# ----------------- GIAO DIỆN ỨNG DỤNG STREAMLIT -----------------
 st.title("⚡ LaTeX & TikZ Studio (Tích hợp AI Gemini)")
 
 tab_ai, tab1, tab2 = st.tabs([
@@ -264,10 +290,10 @@ tab_ai, tab1, tab2 = st.tabs([
     "📄 Chuyển Đổi Mã LaTeX Sang Word"
 ])
 
-# TAB 0: CONVERT PDF/IMAGE SANG WORD BẰNG GEMINI
+# TAB 0: CONVERT PDF/IMAGE SANG WORD
 with tab_ai:
     st.subheader("Chuyển đổi trực tiếp tài liệu PDF hoặc Ảnh sang file Word (.docx)")
-    st.markdown("Hệ thống tự động dùng **Gemini Vision** nhận diện công thức, bảng biểu, sinh mã TikZ hình vẽ và đóng gói thành Word.")
+    st.markdown("Hệ thống tự động dùng **Gemini Vision** nhận diện công thức, bảng biểu, tự động sinh mã TikZ hình vẽ và đóng gói thành Word.")
 
     col_ai1, col_ai2 = st.columns([1, 1])
     with col_ai1:
@@ -307,11 +333,10 @@ Chỉ trả về trực tiếp mã LaTeX giữa \\begin{document} và \\end{docu
 
                     ai_latex_code = rotator.generate_content_with_retry(
                         contents=contents_payload,
-                        model="gemini-2.5-flash",
+                        model_name="gemini-1.5-flash",
                         system_instruction=sys_inst
                     )
                     
-                    # Làm sạch markdown codeblock nếu có
                     ai_latex_code = re.sub(r"^```latex\s*", "", ai_latex_code, flags=re.MULTILINE)
                     ai_latex_code = re.sub(r"^```\s*", "", ai_latex_code, flags=re.MULTILINE)
 
@@ -377,7 +402,7 @@ with tab1:
                 except Exception as e:
                     st.error(f"❌ {str(e)}")
 
-# TAB 2: CHUYỂN ĐỔI LATEX DOCUMENT SANG WORD
+# TAB 2: CHUYỂN ĐỔI LATEX SANG WORD THỦ CÔNG
 with tab2:
     st.subheader("Chuyển toàn bộ file/mã LaTeX thủ công sang Word (.docx)")
     c1, c2 = st.columns([1, 1])
