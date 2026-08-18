@@ -27,11 +27,11 @@ class GeminiKeyRotator:
         pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
 
         system_instruction = (
-            "Bạn là chuyên gia chuyển đổi tài liệu Toán sang LaTeX và TikZ. "
-            "Nhiệm vụ: Chuyển toàn bộ nội dung PDF thành mã nguồn LaTeX đầy đủ. "
+            "Bạn là chuyên gia chuyển đổi tài liệu đề thi Toán sang LaTeX và TikZ. "
+            "Nhiệm vụ: Chuyển toàn bộ nội dung trong file PDF thành mã nguồn LaTeX hoàn chỉnh. "
             "Mọi công thức toán đặt trong $...$ hoặc $$...$$. "
-            "Mọi hình vẽ hình học, đồ thị hàm số BẮT BUỘC dựng bằng môi trường \\begin{tikzpicture}...\\end{tikzpicture}. "
-            "Chỉ xuất mã LaTeX thuần giữa \\begin{document} và \\end{document}, không viết lời mở đầu."
+            "Các hình vẽ hình học, đồ thị hàm số BẮT BUỘC dựng bằng môi trường \\begin{tikzpicture}...\\end{tikzpicture}. "
+            "Chỉ xuất mã LaTeX thuần giữa \\begin{document} và \\end{document}, không viết lời mở đầu hay giải thích."
         )
 
         payload = {
@@ -52,10 +52,7 @@ class GeminiKeyRotator:
                 "parts": [{"text": system_instruction}]
             },
             "generationConfig": {
-                "temperature": 0.1,
-                "thinkingConfig": {
-                    "thinkingBudget": 0
-                }
+                "temperature": 0.1
             }
         }
 
@@ -63,7 +60,7 @@ class GeminiKeyRotator:
             api_key = self.get_next_key()
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
             try:
-                res = requests.post(url, json=payload, timeout=45)
+                res = requests.post(url, json=payload, timeout=180)
                 if res.status_code == 200:
                     data = res.json()
                     candidates = data.get("candidates", [])

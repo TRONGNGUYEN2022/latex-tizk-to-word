@@ -188,7 +188,7 @@ with tab1:
         elif not up_pdf:
             st.warning("⚠️ Hãy chọn file PDF trước.")
         else:
-            with st.spinner("Gemini 3.7 Flash đang đọc PDF và sinh mã LaTeX/TikZ (khoảng 15-30s)..."):
+            with st.spinner("Gemini 3.7 Flash đang đọc PDF và sinh mã LaTeX/TikZ (khoảng 30-60s)..."):
                 try:
                     rotator = GeminiKeyRotator(st.session_state["gemini_keys"])
                     raw_out = rotator.convert_pdf_to_latex(up_pdf.read(), prompt_txt, model="gemini-3.7-flash")
