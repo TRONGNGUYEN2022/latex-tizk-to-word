@@ -12,9 +12,14 @@ st.set_page_config(page_title="LaTeX & TikZ Studio Pro", layout="wide")
 
 def compile_raw_tikz_to_formats(tikz_code, output_dir, dpi=300):
     """
-    Biên dịch khối TikZ sang PDF, PNG, JPEG và xử lý triệt để lỗi LR mode
+    Biên dịch khối TikZ sang PDF, PNG, JPEG và xử lý triệt để lỗi cú pháp toán học
     """
     clean_tikz = tikz_code.strip()
+    
+    # Tự động loại bỏ khoảng trắng lỗi sau dấu mũ và dấu gạch chân (vd: x^ 2 -> x^2)
+    clean_tikz = re.sub(r'\^\s+', '^', clean_tikz)
+    clean_tikz = re.sub(r'_\s+', '_', clean_tikz)
+
     # Loại bỏ các thẻ căn lề khối gây xung đột với standalone
     clean_tikz = re.sub(r"\\begin\{center\}", "", clean_tikz)
     clean_tikz = re.sub(r"\\end\{center\}", "", clean_tikz)
@@ -29,7 +34,7 @@ def compile_raw_tikz_to_formats(tikz_code, output_dir, dpi=300):
         else:
             clean_tikz = f"\\begin{{tikzpicture}}\n{clean_tikz}\n\\end{{tikzpicture}}"
 
-    # Sử dụng raw f-string (rf""") để tránh hoàn toàn lỗi cú pháp escape gạch chéo ngược
+    # Sử dụng raw f-string (rf""") và bảng mã T5 chuẩn Linux để tránh lỗi Unicode và thiếu vietnam.sty
     tex_content = rf"""\documentclass[border=3mm,varwidth=\maxdimen]{{standalone}}
 \usepackage[T5]{{fontenc}}
 \usepackage[utf8]{{inputenc}}
@@ -88,7 +93,7 @@ def compile_raw_tikz_to_formats(tikz_code, output_dir, dpi=300):
 
 def convert_latex_to_html_preview(tex_file, temp_dir):
     """
-    Chuyển đổi TeX sang trang A4 độc lập kèm MathJax và nút sao chép trực tiếp vào Word[cite: 1]
+    Chuyển đổi TeX sang trang A4 độc lập kèm MathJax và nút sao chép trực tiếp vào Word
     """
     try:
         html_out = os.path.join(temp_dir, "preview.html")
@@ -269,7 +274,7 @@ def process_latex_document(raw_tex):
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-# Giao diện chính Streamlit[cite: 1]
+# Giao diện chính Streamlit[cite: 3]
 st.title("⚡ LaTeX & TikZ Studio")
 
 tab1, tab2 = st.tabs(["🎨 Vẽ & Tải Ảnh TikZ Trực Tiếp", "📄 Chuyển Đổi Tài Liệu LaTeX Sang Word"])
