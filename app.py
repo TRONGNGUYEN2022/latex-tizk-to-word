@@ -29,18 +29,19 @@ def compile_raw_tikz_to_formats(tikz_code, output_dir, dpi=300):
         else:
             clean_tikz = f"\\begin{{tikzpicture}}\n{clean_tikz}\n\\end{{tikzpicture}}"
 
-    tex_content = f"""\\documentclass[border=3mm,varwidth=\\maxdimen]{{standalone}}
-\usepackage[T5]{fontenc}
-\usepackage[utf8]{inputenc}
-\\usepackage{{amsmath,amssymb,amsfonts}}
-\\usepackage{{tikz}}
-\\usepackage{{tkz-euclide}}
-\\usepackage{{pgfplots}}
-\\pgfplotsset{{compat=1.18}}
-\\usetikzlibrary{{calc,angles,quotes,patterns,intersections}}
-\\begin{{document}}
+    # Sử dụng raw f-string (rf""") và chuẩn mã font T5 để tương thích hoàn hảo trên môi trường cloud Linux
+    tex_content = rf"""\documentclass[border=3mm,varwidth=\maxdimen]{{standalone}}
+\usepackage[T5]{{fontenc}}
+\usepackage[utf8]{{inputenc}}
+\usepackage{{amsmath,amssymb,amsfonts}}
+\usepackage{{tikz}}
+\usepackage{{tkz-euclide}}
+\usepackage{{pgfplots}}
+\pgfplotsset{{compat=1.18}}
+\usetikzlibrary{{calc,angles,quotes,patterns,intersections}}
+\begin{{document}}
 {clean_tikz}
-\\end{{document}}
+\end{{document}}
 """
     job_name = "custom_tikz_render"
     tex_file = os.path.join(output_dir, f"{job_name}.tex")
