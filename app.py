@@ -30,7 +30,8 @@ def compile_raw_tikz_to_formats(tikz_code, output_dir, dpi=300):
             clean_tikz = f"\\begin{{tikzpicture}}\n{clean_tikz}\n\\end{{tikzpicture}}"
 
     tex_content = f"""\\documentclass[border=3mm,varwidth=\\maxdimen]{{standalone}}
-\\usepackage[utf8]{{vietnam}}
+\usepackage[T5]{fontenc}
+\usepackage[utf8]{inputenc}
 \\usepackage{{amsmath,amssymb,amsfonts}}
 \\usepackage{{tikz}}
 \\usepackage{{tkz-euclide}}
