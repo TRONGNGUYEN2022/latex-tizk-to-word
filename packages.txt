@@ -5,4 +5,3 @@ texlive-fonts-extra
 texlive-lang-other
 texlive-pictures
 poppler-utils
-pandoc
