@@ -16,17 +16,20 @@ def compile_raw_tikz_to_formats(tikz_code, output_dir, dpi=300):
     """
     clean_tikz = tikz_code.strip()
     
-    # Tự động loại bỏ khoảng trắng lỗi sau dấu mũ và dấu gạch chân (vd: x^ 2 -> x^2)
+    # 1. Tự động xóa sạch khoảng trắng sau dấu mũ và gạch chân (vd: x^ 2 -> x^2)
     clean_tikz = re.sub(r'\^\s+', '^', clean_tikz)
     clean_tikz = re.sub(r'_\s+', '_', clean_tikz)
 
-    # Loại bỏ các thẻ căn lề khối gây xung đột với standalone
+    # 2. Chuẩn hóa các biểu thức mũ chưa bọc ngoặc nhọn trong hàm số (vd: x^2/4 -> {x^2}/4)
+    clean_tikz = re.sub(r'([a-zA-Z0-9]+)\^([a-zA-Z0-9]+)', r'{\1^\2}', clean_tikz)
+
+    # 3. Loại bỏ các thẻ căn lề khối gây xung đột với standalone
     clean_tikz = re.sub(r"\\begin\{center\}", "", clean_tikz)
     clean_tikz = re.sub(r"\\end\{center\}", "", clean_tikz)
     clean_tikz = re.sub(r"\\centering", "", clean_tikz)
     clean_tikz = clean_tikz.strip()
 
-    # Tự động trích xuất hoặc bao bọc môi trường tikzpicture
+    # 4. Tự động trích xuất hoặc bao bọc môi trường tikzpicture
     if not clean_tikz.startswith(r"\begin{tikzpicture}"):
         match = re.search(r"(\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\})", clean_tikz)
         if match:
@@ -34,7 +37,7 @@ def compile_raw_tikz_to_formats(tikz_code, output_dir, dpi=300):
         else:
             clean_tikz = f"\\begin{{tikzpicture}}\n{clean_tikz}\n\\end{{tikzpicture}}"
 
-    # Sử dụng raw f-string (rf""") và bảng mã T5 chuẩn Linux để tránh lỗi Unicode và thiếu vietnam.sty
+    # 5. Khung LaTeX tiêu chuẩn dùng bảng mã T5 (tránh lỗi vietnam.sty và unicodeescape)
     tex_content = rf"""\documentclass[border=3mm,varwidth=\maxdimen]{{standalone}}
 \usepackage[T5]{{fontenc}}
 \usepackage[utf8]{{inputenc}}
@@ -92,9 +95,6 @@ def compile_raw_tikz_to_formats(tikz_code, output_dir, dpi=300):
     }
 
 def convert_latex_to_html_preview(tex_file, temp_dir):
-    """
-    Chuyển đổi TeX sang trang A4 độc lập kèm MathJax và nút sao chép trực tiếp vào Word
-    """
     try:
         html_out = os.path.join(temp_dir, "preview.html")
         pypandoc.convert_file(
@@ -274,12 +274,12 @@ def process_latex_document(raw_tex):
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-# Giao diện chính Streamlit[cite: 3]
+# Giao diện chính Streamlit[cite: 4]
 st.title("⚡ LaTeX & TikZ Studio")
 
 tab1, tab2 = st.tabs(["🎨 Vẽ & Tải Ảnh TikZ Trực Tiếp", "📄 Chuyển Đổi Tài Liệu LaTeX Sang Word"])
 
-# TAB 1: Xuất ảnh TikZ đơn lẻ
+# TAB 1: Xuất ảnh TikZ đơn lẻ[cite: 4]
 with tab1:
     st.subheader("Dán mã TikZ $\\rightarrow$ Xem trước & Tải về file ảnh (PNG / JPEG / PDF)")
     col_t1, col_t2 = st.columns([1.1, 1])
@@ -336,7 +336,7 @@ with tab1:
                 except Exception as e:
                     st.error(f"❌ {str(e)}")
 
-# TAB 2: Chuyển toàn bộ tài liệu sang Word
+# TAB 2: Chuyển toàn bộ tài liệu sang Word[cite: 4]
 with tab2:
     st.subheader("Chuyển toàn bộ file/mã LaTeX sang Word (.docx)")
     c1, c2 = st.columns([1, 1])
