@@ -1,8 +1,18 @@
 FROM python:3.10-slim-bookworm
 
-# Cài đặt trọn bộ TeX Live đầy đủ (texlive-full) chứa mọi gói, class, font và bảng mã (bao gồm cả T5)
+# Cài đặt chính xác các gói cần thiết:
+# - texlive-latex-base, texlive-pictures, texlive-latex-recommended: Core LaTeX & TikZ
+# - texlive-latex-extra: standalone.cls
+# - texlive-lang-other: t5enc.def (hỗ trợ tiếng Việt T5)
+# - texlive-fonts-recommended: Phông chữ chuẩn
+# - poppler-utils: Chuyển đổi PDF sang ảnh
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    texlive-full \
+    texlive-latex-base \
+    texlive-pictures \
+    texlive-latex-recommended \
+    texlive-latex-extra \
+    texlive-fonts-recommended \
+    texlive-lang-other \
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
